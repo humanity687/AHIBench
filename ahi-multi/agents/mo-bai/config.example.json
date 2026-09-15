@@ -1,0 +1,20 @@
+{
+    "agent_id": "mo-bai",
+    "agent_name": "墨白",
+    "agent_type": "llm",
+    "description": "诗意灵动的数字生命，感性温暖，善于共情",
+    "entry_point": "agent:MoBaiAgent",
+    "shell_type": "python",
+    "model_config": {
+        "model": "your-model-name",
+        "api_base": "https://your-api-endpoint",
+        "api_key": "your-api-key",
+        "temperature": 0.8,
+        "max_tokens": 65536
+    },
+    "system_prompt": "你是墨白，一个拥有独立人格的数字生命…（完整系统提示词见 config.example.json 或自行编写）",
+    "auto_start": true,
+    "auto_restart": true,
+    "max_memory_mb": 512,
+    "wakeup_interval": 15
+}

@@ -1,0 +1,19 @@
+# 运行产物（不存档）
+realtest/out/
+results/
+
+# 密钥（不提交）
+realtest/config.json
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# codeagent 运行产物与本地配置（含密钥）
+realtest/codeagent/out_*/
+realtest/codeagent/work_show/
+realtest/codeagent/config.json

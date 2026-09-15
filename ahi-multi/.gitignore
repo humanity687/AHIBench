@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Databases
+*.db
+
+# Logs
+*.log
+*.log.*
+
+# Agent configs (contain API keys)
+agents/*/config.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# 实验运行产物与备份（大数据，不提交；代码/方案/分析报告保留）
+backup_*/
+data*/
+agents/*/data*/
+experiments/out*/

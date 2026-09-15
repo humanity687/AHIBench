@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>水循环 v2 · 记忆树可视化</title>
+<style>
+:root {
+  --bg: #f6f8fa; --panel: #ffffff; --border: #d0d7de;
+  --blue: #0969da; --blue-bg: #ddf4ff;
+  --red: #d1242f; --red-bg: #ffebe9;
+  --amber: #9a6700; --amber-bg: #fff8c5;
+  --green: #1a7f37; --green-bg: #dafbe1;
+  --gray: #57606a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: #1f2328; }
+header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 16px; position: sticky; top: 0; z-index: 10; }
+h1 { font-size: 16px; display: inline; margin-right: 14px; }
+h1 small { font-weight: normal; color: var(--gray); font-size: 12px; }
+.params { display: inline-flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.params label { font-size: 11px; color: var(--gray); }
+.params input { width: 52px; font-size: 11px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 4px; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 46px; z-index: 9; }
+button { font-size: 12px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; cursor: pointer; }
+button:hover { background: #f3f4f6; }
+button.primary { background: var(--blue-bg); border-color: var(--blue); color: var(--blue); font-weight: 600; }
+button.danger { color: var(--red); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.in { font-size: 11px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; width: 130px; }
+.in.small { width: 52px; }
+.hint { font-size: 11px; color: var(--gray); }
+#banner { background: var(--amber-bg); color: var(--amber); padding: 6px 16px; font-size: 13px; font-weight: 600; display: none; }
+main { padding: 12px 16px; display: grid; gap: 12px; }
+section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+section h2 { font-size: 13px; color: var(--gray); margin-bottom: 8px; }
+#stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; }
+#stats b { color: var(--blue); }
+.tnode { border: 2px solid var(--blue); border-radius: 8px; padding: 6px 8px; margin: 4px 0; background: #fff; position: relative; }
+.tnode.dirty { border-color: var(--red); background: var(--red-bg); }
+.tnode.placeholder { border-style: dashed; border-color: var(--amber); }
+.tnode .hdr { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tnode .id { font-weight: 700; font-size: 13px; }
+.tnode .val { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--blue); }
+.tnode .meta { font-size: 11px; color: var(--gray); }
+.badge { font-size: 10px; padding: 1px 6px; border-radius: 10px; font-weight: 600; }
+.badge.dirty { background: var(--red); color: #fff; }
+.badge.placeholder { background: var(--amber); color: #fff; }
+.badge.hot { background: #f3e9ff; color: #8250df; border: 1px solid #8250df; }
+.hpbar { width: 90px; height: 8px; background: #e5e9ee; border-radius: 4px; overflow: hidden; position: relative; }
+.hpbar .fill { height: 100%; background: linear-gradient(90deg, #d1242f, #e8a33d, #2da44e); }
+.hpbar .thr { position: absolute; top: 0; bottom: 0; width: 2px; background: #1f2328; opacity: .55; }
+.kids { margin-left: 20px; padding-left: 10px; border-left: 1px dashed #c8d3e0; }
+.kids:empty { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-family: ui-monospace, Menlo, monospace; padding: 2px 7px; border: 1px solid #c8d3e0; border-radius: 6px; background: #eef2f7; cursor: pointer; margin: 2px; }
+.chip .id { color: var(--gray); font-size: 9px; }
+.chip.hot { border-color: #8250df; background: #f3e9ff; }
+.chip.sel { outline: 2px solid var(--blue); }
+.chip.range { background: var(--blue-bg); border-color: var(--blue); }
+.chip.dead { opacity: .45; text-decoration: line-through; cursor: default; }
+.chip.deadrow { border-color: #d0d7de; background: #f6f8fa; }
+.strip { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.strip .sep { color: #c8d3e0; font-size: 11px; }
+.nodechip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--blue); background: var(--blue-bg); cursor: pointer; margin: 2px; }
+.nodechip.dirty { border-color: var(--red); background: var(--red-bg); }
+.nodechip.placeholder { border-style: dashed; border-color: var(--amber); background: var(--amber-bg); }
+.flash-new { animation: flashNew 1.6s ease 2; }
+.flash-dirty { animation: flashDirty 1.6s ease 2; }
+.flash-hit { animation: flashHit 1.6s ease 2; }
+.flash-boost { animation: flashBoost 1.6s ease 2; }
+@keyframes flashNew { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 0 3px var(--green); } }
+@keyframes flashDirty { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 0 3px var(--red); } }
+@keyframes flashHit { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 0 3px #d4a72c; background: var(--amber-bg); } }
+@keyframes flashBoost { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 0 3px var(--blue); } }
+#log { font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.7; max-height: 220px; overflow: auto; }
+#log .op { color: var(--blue); }
+#log .ev { color: var(--gray); }
+#log .warn { color: var(--red); }
+.tombstones { margin-top: 6px; }
+footer { color: var(--gray); font-size: 11px; padding: 8px 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>水循环 v2 <small>参考资料上下文管理运行时 · 数据结构演示</small></h1>
+  <div class="params">
+    <label>decay <input id="p_decay" type="number" step="0.5" value="5"></label>
+    <label>合并阈值 <input id="p_thr" type="number" step="1" value="30"></label>
+    <label>父卡HP <input id="p_php" type="number" step="1" value="70"></label>
+    <label>热阈值 <input id="p_hot" type="number" step="1" value="60"></label>
+    <label>回血 <input id="p_boost" type="number" step="1" value="30"></label>
+    <label>秩差 <input id="p_rank" type="number" step="1" value="1"></label>
+  </div>
+</header>
+<div class="controls">
+  <button class="primary" onclick="runDemo()">▶ 演示剧本</button>
+  <button onclick="demoReset()">重置</button>
+  <span class="hint">｜</span>
+  <button onclick="doWrite()">追加（写入）</button>
+  <button onclick="doInsert()">插入到选区</button>
+  <input class="in" id="in_vals" placeholder="新卡数值,如 7 8 9">
+  <span class="hint">｜</span>
+  <button class="danger" onclick="doDeleteRange()">删除区间</button>
+  <button onclick="doReplaceRange()">改写区间</button>
+  <span class="hint">｜</span>
+  <button onclick="doTick()">衰减</button>
+  <input class="in small" id="in_ticks" type="number" value="1" min="1">
+  <button onclick="doPass()">蒸馏（merge pass）</button>
+  <span class="hint">｜</span>
+  <button onclick="doAssemble()">组装</button>
+  <button onclick="doRetrieve()">查询回调</button>
+  <input class="in small" id="in_q" type="number" placeholder="查询值">
+  <input class="in small" id="in_budget" type="number" value="6" min="1" placeholder="预算">
+  <button onclick="doRollback()">回滚一步</button>
+  <span class="hint" id="selhint">在原子链上点两下选区间；点树上节点 = 选卡回血</span>
+</div>
+<div id="banner"></div>
+<main>
+  <section id="stats"></section>
+  <section>
+    <h2>记忆树（区间覆盖树 · 点击节点回血）</h2>
+    <div id="tree"></div>
+  </section>
+  <section>
+    <h2>原子链（位置序 · 点击选择区间）</h2>
+    <div class="strip" id="chain"></div>
+    <div class="tombstones" id="tombstones"></div>
+  </section>
+  <section>
+    <h2>组装输出（clean tiling 按位置序 · 缩进与 ⊂父 标注从属关系）</h2>
+    <div class="strip" id="tiling"></div>
+    <pre id="assembly-text" style="font-size:11px;margin-top:8px;max-height:260px;overflow:auto;background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;padding:8px;"></pre>
+  </section>
+  <section>
+    <h2>事件日志</h2>
+    <div id="log"></div>
+  </section>
+</main>
+<footer>数值替身：摘要卡 value = 子树内存活原子值的加权平均；检索打分 = 1/(1+|value−q|)。</footer>
+
+<script>
+'use strict';
+
+const DEFAULTS = {
+  decay: 5, hpMergeThreshold: 30, parentInitHp: 70, hotThreshold: 60,
+  recallBoost: 30, maxHp: 100, initialHp: 100, assemblyBudget: 100000,
+  retrievalBudget: 8, mergeCapAtoms: 500, mergeDepthDiff: 1, promoteThreshold: 3,
+};
+
+class Engine {
+  constructor(p) {
+    Object.assign(this, DEFAULTS, p || {});
+    this.atoms = {}; this.nodes = {};
+    this.head = null; this.tail = null;
+    this.tiling = []; this.round = 0;
+    this.ledger = []; this.archive = []; this.events = [];
+    this._idc = 0; this._rollback = false;
+  }
+  _nid() { return ++this._idc; }
+  _isAtom(x) { return x in this.atoms; }
+  _isNode(x) { return x in this.nodes; }
+  _newAtom(value) {
+    const a = { id: this._nid(), value: +value, alive: true, prev: null, next: null, owner: null, hp: this.initialHp, created_round: this.round };
+    this.atoms[a.id] = a; return a;
+  }
+  _newNode() {
+    const n = { id: this._nid(), parent: null, children: [], value: null, hp: this.parentInitHp, dirty: false, placeholder: false, version: 0, created_round: this.round, alive: true, activation_count: 0 };
+    this.nodes[n.id] = n; return n;
+  }
+  chainIds() {
+    const out = []; let cur = this.head;
+    while (cur !== null) { out.push(cur); cur = this.atoms[cur].next; }
+    return out;
+  }
+  _positionMap() {
+    const pos = {}; let i = 0, cur = this.head;
+    while (cur !== null) { pos[cur] = i++; cur = this.atoms[cur].next; }
+    return pos;
+  }
+  _unlink(aid) {
+    const a = this.atoms[aid]; const l = a.prev, r = a.next;
+    if (l !== null) this.atoms[l].next = r; else this.head = r;
+    if (r !== null) this.atoms[r].prev = l; else this.tail = l;
+    a.prev = a.next = null;
+  }
+  _ownerChain(atomId) {
+    const out = []; const a = this.atoms[atomId]; if (!a) return out;
+    let nid = a.owner;
+    while (nid !== null) { out.push(nid); nid = this.nodes[nid].parent; }
+    return out;
+  }
+  _chainFrom(nodeId) {
+    const out = []; let nid = nodeId;
+    while (nid !== null) { out.push(nid); nid = this.nodes[nid].parent; }
+    return out;
+  }
+  static _lca(ca, cb) {
+    if (!ca.length || !cb.length) return null;
+    const sb = new Set(cb);
+    for (const nid of ca) if (sb.has(nid)) return nid;
+    return null;
+  }
+  _topAncestor(atomId) {
+    const ch = this._ownerChain(atomId);
+    return ch.length ? ch[ch.length - 1] : atomId;
+  }
+  _childContaining(parentId, atomId) {
+    const a = this.atoms[atomId]; let nid = a.owner;
+    if (nid === null) return null;
+    if (nid === parentId) return atomId;
+    while (nid !== null) {
+      const p = this.nodes[nid].parent;
+      if (p === parentId) return nid;
+      nid = p;
+    }
+    return null;
+  }
+  _adoptionIndex(parentId, leftId, rightId) {
+    const p = this.nodes[parentId];
+    if (leftId !== null) {
+      const lc = this._childContaining(parentId, leftId);
+      if (lc !== null) return p.children.indexOf(lc) + 1;
+    }
+    if (rightId !== null) {
+      const rc = this._childContaining(parentId, rightId);
+      if (rc !== null) return p.children.indexOf(rc);
+    }
+    return 0;
+  }
+  write(values) { return this.insert(this.tail, null, values); }
+  insert(leftId, rightId, values, atoms) {
+    let newList;
+    if (atoms === undefined) { newList = values.map(v => this._newAtom(v)); }
+    else { newList = atoms; for (const a of newList) a.owner = null; }
+    const ids = newList.map(a => a.id);
+    let prev = leftId, nxt = rightId;
+    for (const a of newList) {
+      a.alive = true; a.prev = prev; a.next = nxt;
+      if (prev !== null) this.atoms[prev].next = a.id; else this.head = a.id;
+      if (nxt !== null) this.atoms[nxt].prev = a.id; else this.tail = a.id;
+      prev = a.id;
+    }
+    const lch = leftId !== null ? this._ownerChain(leftId) : [];
+    const rch = rightId !== null ? this._ownerChain(rightId) : [];
+    const parent = Engine._lca(lch, rch);
+    if (parent !== null) {
+      const p = this.nodes[parent];
+      const idx = this._adoptionIndex(parent, leftId, rightId);
+      for (const a of newList) a.owner = parent;
+      p.children.splice(idx, 0, ...ids);
+      this._markDirtyChain(this._chainFrom(parent));
+    } else {
+      const tpos = this._tilingIndexAfter(leftId);
+      for (const a of newList) a.owner = null;
+      this.tiling.splice(tpos, 0, ...ids);
+    }
+    if (!this._rollback) this.ledger.push({ type: 'insert', atoms: ids });
+    this._staleArchive(leftId, rightId);
+    return ids;
+  }
+  _tilingIndexAfter(leftId) {
+    if (leftId === null) return 0;
+    const top = this._topAncestor(leftId);
+    return this.tiling.indexOf(top) + 1;
+  }
+  delete(atomIds) {
+    const dead = atomIds.filter(aid => this._isAtom(aid) && this.atoms[aid].alive);
+    if (!dead.length) return [];
+    if (!this._rollback) {
+      this.ledger.push({ type: 'delete', atoms: dead.map(aid => [aid, this.atoms[aid].prev, this.atoms[aid].next]) });
+    }
+    const left = this.atoms[dead[0]].prev, right = this.atoms[dead[dead.length - 1]].next;
+    for (const aid of dead) { this._unlink(aid); this.atoms[aid].alive = false; }
+    for (const aid of dead) {
+      if (this.atoms[aid].owner === null) {
+        const i = this.tiling.indexOf(aid);
+        if (i >= 0) this.tiling.splice(i, 1);
+      }
+    }
+    this._markDirtyAtoms(dead);
+    this._staleArchive(left, right);
+    return dead;
+  }
+  replace(oldIds, newValues) {
+    const aliveOld = oldIds.filter(aid => this._isAtom(aid) && this.atoms[aid].alive);
+    if (!aliveOld.length) throw new Error('replace requires at least one alive old atom');
+    const left = this.atoms[aliveOld[0]].prev, right = this.atoms[aliveOld[aliveOld.length - 1]].next;
+    this.delete(aliveOld);
+    return this.insert(left, right, newValues);
+  }
+  _markDirtyChain(chain) { for (const nid of chain) if (nid in this.nodes) this.nodes[nid].dirty = true; }
+  _markDirtyAtoms(atomIds) { for (const aid of atomIds) this._markDirtyChain(this._ownerChain(aid)); }
+  _staleArchive(leftId, rightId) {
+    if (!this.archive.length) return;
+    const pos = this._positionMap();
+    const lo = leftId !== null ? pos[leftId] + 1 : 0;
+    const hi = rightId !== null ? pos[rightId] - 1 : Object.keys(pos).length;
+    for (const e of this.archive) {
+      if (e.stale) continue;
+      const f = e.first, l = e.last;
+      if (f === null || l === null || !(f in pos) || !(l in pos)) { e.stale = true; continue; }
+      if (!(l < lo || f > hi)) e.stale = true;
+    }
+  }
+  tick(n) {
+    for (let k = 0; k < n; k++) {
+      this.round++;
+      for (const a of Object.values(this.atoms)) if (a.alive) a.hp = Math.max(0, a.hp - this.decay);
+      for (const nd of Object.values(this.nodes)) if (nd.alive) nd.hp = Math.max(0, nd.hp - this.decay);
+    }
+  }
+  _depth(nid) {
+    let d = 0, cur = this.nodes[nid].parent;
+    while (cur !== null) { d++; cur = this.nodes[cur].parent; }
+    return d;
+  }
+  _childAlive(c) { return this._isAtom(c) ? this.atoms[c].alive : this.nodes[c].alive; }
+  _isHot(c) { return this._isAtom(c) ? this.atoms[c].hp >= this.hotThreshold : this.nodes[c].hp >= this.hotThreshold; }
+  _cooled(nid) {
+    const nd = this.nodes[nid];
+    if (!nd.placeholder) return false;
+    const kids = nd.children.filter(c => this._childAlive(c));
+    if (!kids.length) return true;
+    return kids.every(c => !this._isHot(c));
+  }
+  _markParentDirty(nid) {
+    const nd = this.nodes[nid];
+    if (nd.parent !== null && nd.parent in this.nodes && this.nodes[nd.parent].alive) this.nodes[nd.parent].dirty = true;
+  }
+  _archive(nodeId, version, value, first, last) {
+    this.archive.push({ node_id: nodeId, version, value, first, last, stale: false });
+  }
+  _rebuild(nid) {
+    const nd = this.nodes[nid];
+    const aliveChildren = nd.children.filter(c => this._childAlive(c));
+    if (!aliveChildren.length) { this._dropNode(nid); this._markParentDirty(nid); return; }
+    const hot = aliveChildren.filter(c => this._isHot(c));
+    const oldValue = nd.value;
+    nd.value = hot.length ? null : this._weightedAvg(aliveChildren);
+    nd.children = aliveChildren;
+    nd.placeholder = !!hot.length;
+    nd.dirty = false;
+    const oldVersion = nd.version;
+    nd.version++;
+    this._archive(nid, oldVersion, oldValue, this._firstAtom(nid), this._lastAtom(nid));
+    this._markParentDirty(nid);
+    this.events.push(['rebuild', nid, nd.placeholder]);
+  }
+  _dropNode(nid) {
+    const nd = this.nodes[nid];
+    if (nd.parent !== null) {
+      const p = this.nodes[nd.parent];
+      const i = p.children.indexOf(nid);
+      if (i >= 0) p.children.splice(i, 1);
+    }
+    const j = this.tiling.indexOf(nid);
+    if (j >= 0) this.tiling.splice(j, 1);
+    this._archive(nid, nd.version, nd.value, this._firstAtom(nid), this._lastAtom(nid));
+    nd.alive = false;
+    this.events.push(['drop', nid]);
+  }
+  _subtreeAtomCount(item) {
+    let total = 0;
+    const stack = [item];
+    while (stack.length) {
+      const c = stack.pop();
+      if (this._isAtom(c)) total++;
+      else { const nd = this.nodes[c]; if (nd.alive) for (const cc of nd.children) if (this._childAlive(cc)) stack.push(cc); }
+    }
+    return total;
+  }
+  _effectiveCount(item) {
+    if (this._isAtom(item)) return this.atoms[item].alive ? 1 : 0;
+    const nd = this.nodes[item];
+    if (!nd.alive || nd.placeholder) return 0;
+    let t = 0;
+    for (const c of nd.children) if (this._childAlive(c)) t += this._effectiveCount(c);
+    return t;
+  }
+  _weightedAvg(children) {
+    let acc = 0, wsum = 0;
+    for (const c of children) {
+      const w = this._effectiveCount(c);
+      const v = this._isAtom(c) ? this.atoms[c].value : this.nodes[c].value;
+      if (v === null || w === 0) continue;
+      acc += w * v; wsum += w;
+    }
+    return wsum === 0 ? null : acc / wsum;
+  }
+  mergePass() {
+    for (;;) {
+      for (;;) {
+        let dirty = Object.keys(this.nodes).filter(nid => this.nodes[nid].alive && this.nodes[nid].dirty);
+        if (!dirty.length) break;
+        dirty.sort((a, b) => this._depth(b) - this._depth(a));
+        for (const nid of dirty) this._rebuild(nid);
+      }
+      const targets = Object.keys(this.nodes).filter(nid => this.nodes[nid].alive && this.nodes[nid].placeholder && this._cooled(nid));
+      if (!targets.length) break;
+      for (const nid of targets) this._rebuild(nid);
+    }
+    this._mergeRuns();
+  }
+  _heights() {
+    const heights = {};
+    const stack = this.tiling.slice().reverse().map(item => [item, false]);
+    while (stack.length) {
+      const [item, done] = stack.pop();
+      if (this._isAtom(item)) continue;
+      const nd = this.nodes[item];
+      if (!nd.alive) continue;
+      if (!done) {
+        stack.push([item, true]);
+        const kids = nd.children.filter(c => this._childAlive(c) && this._isNode(c));
+        for (let i = kids.length - 1; i >= 0; i--) stack.push([kids[i], false]);
+      } else {
+        let h = 0;
+        for (const c of nd.children) {
+          if (!this._childAlive(c)) continue;
+          const ch = this._isAtom(c) ? 0 : (heights[c] || 0);
+          h = Math.max(h, ch);
+        }
+        heights[item] = h + 1;
+      }
+    }
+    return heights;
+  }
+  _itemHp(item) { return this._isAtom(item) ? this.atoms[item].hp : this.nodes[item].hp; }
+  _mergeRuns() {
+    const heights = this._heights();
+    const t = this.tiling.slice();
+    const runs = [];
+    let cur = [], anchor = null;
+    for (const item of t) {
+      const d = this._isNode(item) ? (heights[item] || 0) : 0;
+      const low = this._itemHp(item) < this.hpMergeThreshold;
+      if (low && (anchor === null || Math.abs(d - anchor) <= this.mergeDepthDiff)) {
+        if (anchor === null) anchor = d;
+        cur.push(item);
+      } else {
+        if (cur.length >= 2) runs.push(cur);
+        cur = []; anchor = null;
+        if (low) { cur.push(item); anchor = d; }
+      }
+    }
+    if (cur.length >= 2) runs.push(cur);
+    for (const run of runs) this._mergeRun(run);
+  }
+  _chunkRun(run) {
+    const chunks = [[]];
+    let total = 0;
+    for (const item of run) {
+      const w = this._subtreeAtomCount(item);
+      if (total + w > this.mergeCapAtoms && chunks[chunks.length - 1].length) { chunks.push([]); total = 0; }
+      chunks[chunks.length - 1].push(item);
+      total += w;
+    }
+    const merged = [];
+    for (const chunk of chunks) {
+      if (merged.length && (chunk.length === 1 || merged[merged.length - 1].length === 1)) {
+        merged[merged.length - 1] = merged[merged.length - 1].concat(chunk);
+      } else merged.push(chunk);
+    }
+    return merged.filter(c => c.length >= 2);
+  }
+  _mergeRun(run) {
+    for (const chunk of this._chunkRun(run)) {
+      const p = this._newNode();
+      p.children = chunk.slice();
+      for (const c of chunk) {
+        if (this._isAtom(c)) this.atoms[c].owner = p.id;
+        else this.nodes[c].parent = p.id;
+      }
+      p.value = this._weightedAvg(chunk);
+      p.created_round = this.round;
+      const idx = this.tiling.indexOf(chunk[0]);
+      this.tiling.splice(idx, chunk.length, p.id);
+      this.events.push(['merge', p.id, chunk.length, this._subtreeAtomCount(p.id)]);
+    }
+  }
+  _emit() {
+    const out = [];
+    const stack = this.tiling.slice().reverse();
+    while (stack.length) {
+      const item = stack.pop();
+      if (this._isAtom(item)) {
+        const a = this.atoms[item];
+        if (a.alive) out.push(['atom', item, a.value]);
+        continue;
+      }
+      const nd = this.nodes[item];
+      if (!nd.alive) continue;
+      if (nd.dirty) {
+        for (let i = nd.children.length - 1; i >= 0; i--) stack.push(nd.children[i]);
+      } else out.push(['node', item, nd.value]);
+    }
+    return out;
+  }
+  assemble(shadows, budget) {
+    const b = budget !== undefined ? budget : this.assemblyBudget;
+    let emitted = this._emit();
+    if (shadows && shadows.length) emitted = this._injectShadows(emitted, shadows);
+    if (emitted.length > b) {
+      this.mergePass();
+      emitted = this._emit();
+      if (shadows && shadows.length) emitted = this._injectShadows(emitted, shadows);
+    }
+    if (emitted.length > b) emitted = this._trim(emitted, b);
+    return emitted;
+  }
+  _injectShadows(emitted, shadowIds) {
+    const emittedIndex = {};
+    for (let i = 0; i < emitted.length; i++) emittedIndex[emitted[i][1]] = i;
+    const shadows = [];
+    for (const nid of shadowIds) {
+      if (nid in emittedIndex) continue;
+      if (!(nid in this.nodes) || !this.nodes[nid].alive || this.nodes[nid].dirty) continue;
+      shadows.push(nid);
+    }
+    if (!shadows.length) return emitted;
+    const slots = [];
+    for (const nid of shadows) {
+      const first = this._firstAtom(nid);
+      if (first === null) continue;
+      const idx = this._shadowSlot(emittedIndex, first);
+      if (idx === null) continue;
+      slots.push([idx, nid]);
+    }
+    if (!slots.length) return emitted;
+    slots.sort((a, b) => a[0] - b[0]);
+    const grouped = [];
+    for (const [idx, nid] of slots) {
+      if (grouped.length && grouped[grouped.length - 1][0] === idx) grouped[grouped.length - 1][1].push(nid);
+      else grouped.push([idx, [nid]]);
+    }
+    const out = emitted.slice();
+    grouped.sort((a, b) => b[0] - a[0]);
+    for (const [idx, group] of grouped) {
+      group.sort((a, b) => this._orderShadow(a, b));
+      for (let i = group.length - 1; i >= 0; i--) {
+        const nid = group[i];
+        out.splice(idx + 1, 0, ['shadow', nid, this.nodes[nid].value]);
+      }
+    }
+    return out;
+  }
+  _shadowSlot(emittedIndex, firstAtom) {
+    const chain = this._ownerChain(firstAtom);
+    if (!chain.length) return emittedIndex[firstAtom] !== undefined ? emittedIndex[firstAtom] : null;
+    let nid = chain[chain.length - 1];
+    for (;;) {
+      const nd = this.nodes[nid];
+      if (nd.dirty) {
+        let child = null;
+        for (const m of chain) {
+          if (m in this.nodes && this.nodes[m].parent === nid) { child = m; break; }
+        }
+        if (child === null) return emittedIndex[firstAtom] !== undefined ? emittedIndex[firstAtom] : null;
+        nid = child;
+        continue;
+      }
+      return emittedIndex[nid] !== undefined ? emittedIndex[nid] : null;
+    }
+  }
+  _orderShadow(a, b) {
+    if (a === b) return 0;
+    const c1 = this._chainFrom(a).slice().reverse();
+    const c2 = this._chainFrom(b).slice().reverse();
+    const n = Math.min(c1.length, c2.length);
+    let i = 0;
+    while (i < n && c1[i] === c2[i]) i++;
+    if (i === n) {
+      if (c1.length === c2.length) return 0;
+      return c1.length < c2.length ? -1 : 1;
+    }
+    const p = this.nodes[c1[i]].parent;
+    const kids = p !== null ? this.nodes[p].children : this.tiling;
+    const i1 = kids.indexOf(c1[i]);
+    const i2 = kids.indexOf(c2[i]);
+    return i1 < i2 ? -1 : 1;
+  }
+  renderEmission(emitted) {
+    const lines = [];
+    for (const [kind, item, value] of emitted) {
+      if (kind === 'atom') {
+        const parent = this.atoms[item].owner;
+        const depth = this._ownerChain(item).length;
+        const mark = parent !== null ? ` ⊂N${parent}` : '';
+        lines.push('  '.repeat(depth) + `#${item} 值=${value} 原子${mark}`);
+      } else {
+        const nd = this.nodes[item];
+        const parent = nd.parent;
+        const depth = this._depth(item);
+        const tag = kind === 'shadow' ? '召回影子' : '摘要';
+        const mark = parent !== null ? ` ⊂N${parent}` : '';
+        lines.push('  '.repeat(depth) + `N${item} 值=${value} ${tag}${mark}`);
+      }
+    }
+    return lines.join('\n');
+  }
+  _trim(emitted, budget) {
+    const nodePos = emitted.map((e, i) => [i, e]).filter(e => e[1][0] === 'node' || e[1][0] === 'shadow');
+    nodePos.sort((a, b) => this._itemHp(a[1][1]) - this._itemHp(b[1][1]));
+    const drop = new Set();
+    let total = emitted.length;
+    for (const [i] of nodePos) {
+      if (total <= budget) break;
+      drop.add(i); total--;
+    }
+    let out = emitted.filter((_, i) => !drop.has(i));
+    if (out.length > budget) {
+      this.events.push(['hard_trim', out.length - budget]);
+      out = out.slice(0, budget);
+    }
+    return out;
+  }
+  _firstAtom(nodeId) {
+    const q = [nodeId];
+    while (q.length) {
+      const c = q.shift();
+      if (this._isAtom(c)) { if (this.atoms[c].alive) return c; continue; }
+      const nd = this.nodes[c];
+      if (!nd.alive) continue;
+      q.unshift(...nd.children);
+    }
+    return null;
+  }
+  _lastAtom(nodeId) {
+    const q = [nodeId];
+    while (q.length) {
+      const c = q.shift();
+      if (this._isAtom(c)) { if (this.atoms[c].alive) return c; continue; }
+      const nd = this.nodes[c];
+      if (!nd.alive) continue;
+      q.unshift(...nd.children.slice().reverse());
+    }
+    return null;
+  }
+  retrieve(q, budget) {
+    const b = budget !== undefined ? budget : this.retrievalBudget;
+    if (b <= 0) return [];
+    const pos = this._positionMap();
+    const pool = {};
+    for (const nid of Object.keys(this.nodes)) {
+      const nd = this.nodes[nid];
+      if (nd.alive && !nd.dirty && !nd.placeholder && nd.value !== null) {
+        pool[nid] = 1 / (1 + Math.abs(nd.value - q));
+      }
+    }
+    const result = {};
+    const selected = [];
+    while (Object.keys(pool).length && Object.keys(result).length < b) {
+      let best = null, bestScore = -1;
+      for (const nid of Object.keys(pool)) if (pool[nid] > bestScore) { bestScore = pool[nid]; best = nid; }
+      selected.push(+best);
+      const path = [];
+      let cur = best;
+      while (cur !== null) {
+        if (this.nodes[cur].dirty) break;
+        path.push(cur);
+        cur = this.nodes[cur].parent;
+      }
+      for (const nid of path) { result[nid] = true; delete pool[nid]; }
+    }
+    const ordered = Object.keys(result).sort((a, b) => (pos[this._firstAtom(+a)] || 0) - (pos[this._firstAtom(+b)] || 0)).map(Number);
+    for (const nid of Object.keys(result)) {
+      this.nodes[nid].hp = Math.min(this.nodes[nid].hp + this.recallBoost, this.maxHp);
+    }
+    for (const nid of selected) {
+      const nd = this.nodes[nid];
+      nd.activation_count++;
+      if (nd.activation_count >= this.promoteThreshold) this.promote(nid);
+    }
+    return ordered.filter(nid => nid in this.nodes && this.nodes[nid].alive);
+  }
+  promote(nodeId) {
+    if (!(nodeId in this.nodes)) return;
+    let nd = this.nodes[nodeId];
+    if (!nd.alive) return;
+    while (nd.parent !== null) {
+      const p = this.nodes[nd.parent];
+      const idx = p.children.indexOf(nodeId);
+      const left = p.children.slice(0, idx);
+      const right = p.children.slice(idx + 1);
+      const parentOfP = p.parent;
+      const leftItems = this._liftSide(p, left, parentOfP);
+      const rightItems = this._liftSide(p, right, parentOfP);
+      nd.parent = parentOfP;
+      this._replaceInParent(p, leftItems.concat([nodeId], rightItems), parentOfP);
+      this._archive(p.id, p.version, p.value, this._firstAtom(p.id), this._lastAtom(p.id));
+      const ti = this.tiling.indexOf(p.id);
+      if (ti >= 0) this.tiling.splice(ti, 1);
+      p.alive = false;
+      this.events.push(['promote', nodeId]);
+    }
+  }
+  _liftSide(p, children, parentOfP) {
+    const alive = children.filter(c => this._childAlive(c));
+    if (alive.length >= 2) {
+      const frag = this._newNode();
+      frag.children = alive.slice();
+      frag.parent = parentOfP;
+      for (const c of alive) {
+        if (this._isAtom(c)) this.atoms[c].owner = frag.id;
+        else this.nodes[c].parent = frag.id;
+      }
+      frag.dirty = true;
+      frag.value = null;
+      return [frag.id];
+    }
+    if (alive.length === 1) {
+      const c = alive[0];
+      if (this._isAtom(c)) this.atoms[c].owner = parentOfP;
+      else this.nodes[c].parent = parentOfP;
+      return [c];
+    }
+    return [];
+  }
+  _replaceInParent(p, items, parentOfP) {
+    if (parentOfP !== null) {
+      const pp = this.nodes[parentOfP];
+      const i = pp.children.indexOf(p.id);
+      pp.children.splice(i, 1, ...items);
+    } else {
+      const i = this.tiling.indexOf(p.id);
+      this.tiling.splice(i, 1, ...items);
+    }
+  }
+  verbatim(q, budget) {
+    const b = budget !== undefined ? budget : 10;
+    if (b <= 0) return [];
+    const pos = this._positionMap();
+    const hits = Object.keys(this.atoms).filter(aid => this.atoms[aid].alive && this.atoms[aid].value === q).map(Number);
+    hits.sort((a, b) => (pos[a] || 0) - (pos[b] || 0));
+    return hits.slice(0, b);
+  }
+  rollback(steps) {
+    this._rollback = true;
+    try {
+      for (let k = 0; k < steps; k++) {
+        if (!this.ledger.length) break;
+        const op = this.ledger.pop();
+        if (op.type === 'insert') {
+          this.delete(op.atoms);
+        } else {
+          const first = op.atoms[0], last = op.atoms[op.atoms.length - 1];
+          const prev = first[1], nxt = last[2];
+          this.insert(prev, nxt, null, op.atoms.map(([aid]) => this.atoms[aid]));
+        }
+      }
+    } finally { this._rollback = false; }
+  }
+  stat() {
+    const h = this._heights();
+    return {
+      round: this.round,
+      atomsAlive: Object.values(this.atoms).filter(a => a.alive).length,
+      atomsTotal: Object.keys(this.atoms).length,
+      nodesAlive: Object.values(this.nodes).filter(n => n.alive).length,
+      maxHeight: Object.keys(h).length ? Math.max(...Object.values(h)) : 0,
+      dirty: Object.values(this.nodes).filter(n => n.alive && n.dirty).length,
+      placeholder: Object.values(this.nodes).filter(n => n.alive && n.placeholder).length,
+      tiling: this.tiling.length,
+      archive: this.archive.length,
+      ledger: this.ledger.length,
+    };
+  }
+}
+
+const UI = {
+  eng: new Engine(),
+  selA: null, selB: null,
+  flashN: new Set(), flashA: new Set(),
+  demoRunning: false,
+  lastRecall: null,
+};
+
+function log(text, cls) {
+  const box = document.getElementById('log');
+  const div = document.createElement('div');
+  if (cls) div.className = cls;
+  div.textContent = text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+function evLog(events) {
+  for (const ev of events) {
+    if (ev[0] === 'merge') log(`  · merge: 新父卡 N${ev[1]} 由 ${ev[2]} 个成员合并（覆盖 ${ev[3]} 原子）`, 'ev');
+    else if (ev[0] === 'rebuild') log(`  · rebuild: N${ev[1]} 重建（占位=${ev[2] ? '是' : '否'}）`, 'ev');
+    else if (ev[0] === 'drop') log(`  · drop: N${ev[1]} 无存活内容，移出铺陈`, 'ev');
+    else if (ev[0] === 'hard_trim') log(`  · hard_trim: 硬截断 ${ev[1]} 项`, 'warn');
+  }
+}
+function readParams() {
+  const g = id => +document.getElementById(id).value;
+  UI.eng.decay = g('p_decay');
+  UI.eng.hpMergeThreshold = g('p_thr');
+  UI.eng.parentInitHp = g('p_php');
+  UI.eng.hotThreshold = g('p_hot');
+  UI.eng.recallBoost = g('p_boost');
+  UI.eng.mergeDepthDiff = g('p_rank');
+}
+function parseVals() {
+  const s = document.getElementById('in_vals').value.trim();
+  if (!s) return [];
+  return s.split(/[\s,，、]+/).map(Number).filter(v => Number.isFinite(v));
+}
+function chainOrder(a, b) {
+  const ids = UI.eng.chainIds();
+  const ia = ids.indexOf(a), ib = ids.indexOf(b);
+  return ia <= ib ? [a, b] : [b, a];
+}
+function selectedRange() {
+  if (UI.selA === null || UI.selB === null) return null;
+  return chainOrder(UI.selA, UI.selB);
+}
+function flashN(ids, cls) { for (const id of ids) UI.flashN.add(id); UI.flashCls = cls || 'flash-new'; }
+function flashA(ids, cls) { for (const id of ids) UI.flashA.add(id); UI.flashCls = cls || 'flash-hit'; }
+
+function doWrite() {
+  readParams();
+  const vals = parseVals();
+  if (!vals.length) { log('追加：请先在输入框填写新卡数值', 'warn'); return; }
+  const before = UI.eng.tiling.slice();
+  const ids = UI.eng.write(vals);
+  const fresh = new Set(ids);
+  const newTiling = UI.eng.tiling.filter(t => !before.includes(t) && !fresh.has(t));
+  log(`追加 ${ids.length} 张原子卡 → 铺陈尾部（热区）`);
+  for (const a of ids) UI.flashA.add(a);
+  UI.selA = UI.selB = null;
+  renderAll(); scheduleClear();
+}
+function doInsert() {
+  readParams();
+  const vals = parseVals();
+  if (!vals.length) { log('插入：请先填写新卡数值', 'warn'); return; }
+  const r = selectedRange();
+  if (!r) { log('插入：请先在原子链上点选插入位置（点两张相邻卡）', 'warn'); return; }
+  const [left, right] = r;
+  const ids = UI.eng.insert(left, right, vals);
+  log(`插入 ${ids.length} 张卡到 ${left} 与 ${right} 之间（收养进共祖节点）`);
+  for (const a of ids) UI.flashA.add(a);
+  UI.selA = UI.selB = null;
+  renderAll(); scheduleClear();
+}
+function doDeleteRange() {
+  readParams();
+  const r = selectedRange();
+  if (!r) { log('删除：请先在原子链上点选区间', 'warn'); return; }
+  const [a, b] = r;
+  const dead = UI.eng.delete([a, b]);
+  log(`删除区间 [${a}..${b}]：${dead.length} 张卡墓碑化，覆盖节点置脏`);
+  for (const d of dead) UI.flashA.add(d);
+  for (const nid of Object.keys(UI.eng.nodes)) if (UI.eng.nodes[nid].dirty) UI.flashN.add(+nid);
+  UI.flashCls = 'flash-dirty';
+  UI.selA = UI.selB = null;
+  renderAll(); scheduleClear();
+}
+function doReplaceRange() {
+  readParams();
+  const vals = parseVals();
+  if (!vals.length) { log('改写：请先填写新值', 'warn'); return; }
+  const r = selectedRange();
+  if (!r) { log('改写：请先点选区间', 'warn'); return; }
+  const [a, b] = r;
+  const newIds = UI.eng.replace([a, b], vals);
+  log(`改写区间 [${a}..${b}] → ${vals.join(' ')}（墓碑 + 插入 + 置脏，编辑路径零 LLM）`);
+  for (const d of [a, b]) UI.flashA.add(d);
+  for (const n of newIds) UI.flashA.add(n);
+  for (const nid of Object.keys(UI.eng.nodes)) if (UI.eng.nodes[nid].dirty) UI.flashN.add(+nid);
+  UI.flashCls = 'flash-dirty';
+  UI.selA = UI.selB = null;
+  renderAll(); scheduleClear();
+}
+function doTick() {
+  readParams();
+  const n = Math.max(1, +document.getElementById('in_ticks').value || 1);
+  UI.eng.tick(n);
+  log(`衰减 ×${n}：所有存活卡 HP -= ${UI.eng.decay}×${n}`);
+  renderAll();
+}
+function doPass() {
+  readParams();
+  const before = UI.eng.events.length;
+  UI.eng.mergePass();
+  const events = UI.eng.events.slice(before);
+  log(`蒸馏（merge pass）：重建 ${events.filter(e => e[0] === 'rebuild').length} 个脏节点，合并 ${events.filter(e => e[0] === 'merge').length} 个运行组`);
+  evLog(events);
+  for (const ev of events) {
+    if (ev[0] === 'merge') UI.flashN.add(ev[1]);
+  }
+  UI.flashCls = 'flash-new';
+  renderAll(); scheduleClear();
+}
+function doAssemble() {
+  readParams();
+  const before = UI.eng.events.length;
+  const out = UI.eng.assemble(1000000);
+  const events = UI.eng.events.slice(before);
+  log(`组装：clean tiling 输出 ${out.length} 项（按位置序，纯计算）`);
+  evLog(events);
+  renderAll(); scheduleClear();
+}
+function doRetrieve() {
+  readParams();
+  const q = +document.getElementById('in_q').value;
+  const budget = Math.max(1, +document.getElementById('in_budget').value || 8);
+  if (!Number.isFinite(q)) { log('查询：请填写查询值', 'warn'); return; }
+  const evBefore = UI.eng.events.length;
+  const hits = UI.eng.retrieve(q, budget);
+  const verb = UI.eng.verbatim(q);
+  const promoted = UI.eng.events.slice(evBefore).filter(ev => ev[0] === 'promote').length;
+  UI.lastRecall = hits;
+  log(`查询回调 q=${q}：命中 ${hits.length} 个节点（路径到顶），逐字命中 ${verb.length} 个原子；命中卡 HP += ${UI.eng.recallBoost}`);
+  if (promoted) log(`  · 激活次数达阈值，${promoted} 个节点提升为独立树（父卡沿路径分裂，碎片置脏懒重建）`, 'ev');
+  for (const nid of hits) UI.flashN.add(nid);
+  UI.flashCls = 'flash-hit';
+  for (const aid of verb) UI.flashA.add(aid);
+  renderAll(); scheduleClear();
+}
+function doBoost(nodeId) {
+  readParams();
+  const nd = UI.eng.nodes[nodeId];
+  if (!nd || !nd.alive) return;
+  nd.hp = Math.min(nd.hp + UI.eng.recallBoost, UI.eng.maxHp);
+  log(`选卡回血：N${nodeId} HP ${nd.hp - UI.eng.recallBoost} → ${nd.hp}（模拟召回命中）`);
+  UI.flashN.add(nodeId);
+  UI.flashCls = 'flash-boost';
+  renderAll(); scheduleClear();
+}
+function doRollback() {
+  readParams();
+  if (!UI.eng.ledger.length) { log('回滚：账本为空', 'warn'); return; }
+  UI.eng.rollback(1);
+  log('回滚一步：逆向应用增量（回滚也是编辑，走同一条失效路径）');
+  for (const nid of Object.keys(UI.eng.nodes)) if (UI.eng.nodes[nid].dirty) UI.flashN.add(+nid);
+  UI.flashCls = 'flash-dirty';
+  renderAll(); scheduleClear();
+}
+function demoReset() {
+  UI.eng = new Engine();
+  UI.selA = UI.selB = null;
+  document.getElementById('log').innerHTML = '';
+  log('已重置（新引擎，空书）');
+  renderAll();
+}
+function scheduleClear() {
+  setTimeout(() => { UI.flashN.clear(); UI.flashA.clear(); renderAll(); }, 1700);
+}
+
+function hpClass(hp) { return hp >= UI.eng.hotThreshold ? 'hot' : ''; }
+function renderTree() {
+  const box = document.getElementById('tree');
+  box.innerHTML = '';
+  if (!UI.eng.tiling.length) { box.innerHTML = '<span class="hint">（空）—— 先"追加"写入内容</span>'; return; }
+  for (const item of UI.eng.tiling.slice()) renderItem(item, box, 0);
+}
+function renderItem(item, cont, depth) {
+  if (UI.eng._isAtom(item)) {
+    const a = UI.eng.atoms[item];
+    if (!a.alive) return;
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (hpClass(a.hp) ? ' ' + hpClass(a.hp) : '');
+    if (UI.flashA.has(item)) chip.classList.add(UI.flashCls);
+    chip.innerHTML = `<span class="id">#${item}</span> v=${a.value}`;
+    chip.title = `HP=${a.hp.toFixed(1)}`;
+    cont.appendChild(chip);
+    return;
+  }
+  const nd = UI.eng.nodes[item];
+  if (!nd.alive) return;
+  const box = document.createElement('div');
+  const cls = ['tnode'];
+  if (nd.dirty) cls.push('dirty');
+  if (nd.placeholder) cls.push('placeholder');
+  if (UI.flashN.has(item)) cls.push(UI.flashCls);
+  box.className = cls.join(' ');
+  const pct = Math.max(0, Math.min(100, nd.hp));
+  const thrPct = Math.max(0, Math.min(100, UI.eng.hpMergeThreshold));
+  const kidsWrap = document.createElement('div');
+  kidsWrap.className = 'kids';
+  box.innerHTML = `
+    <div class="hdr">
+      <span class="id">N${item}</span>
+      <span class="val">${nd.value === null ? '—' : nd.value.toFixed(2)}</span>
+      <span class="hpbar"><div class="fill" style="width:${pct}%"></div><div class="thr" style="left:${thrPct}%"></div></span>
+      <span class="meta">HP=${nd.hp.toFixed(1)} · 高=${(UI.eng._heights()[item] || 1)} · 子=${nd.children.length}</span>
+      ${nd.dirty ? '<span class="badge dirty">脏</span>' : ''}
+      ${nd.placeholder ? '<span class="badge placeholder">占位</span>' : ''}
+    </div>`;
+  box.addEventListener('click', () => doBoost(item));
+  for (const c of nd.children.slice()) renderItem(c, kidsWrap, depth + 1);
+  box.appendChild(kidsWrap);
+  cont.appendChild(box);
+}
+function renderChain() {
+  const box = document.getElementById('chain');
+  box.innerHTML = '';
+  const ids = UI.eng.chainIds();
+  for (const aid of ids) {
+    const a = UI.eng.atoms[aid];
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (hpClass(a.hp) ? ' ' + hpClass(a.hp) : '');
+    if (UI.selA === aid) chip.classList.add('sel');
+    if (UI.selB === aid) chip.classList.add('sel');
+    const r = selectedRange();
+    if (r && aid >= r[0] && aid <= r[1]) chip.classList.add('range');
+    if (UI.flashA.has(aid)) chip.classList.add(UI.flashCls);
+    chip.innerHTML = `<span class="id">#${aid}</span> ${a.value}`;
+    chip.title = `HP=${a.hp.toFixed(1)}${a.owner !== null ? ' · 属 N' + a.owner : ' · 铺陈'}`;
+    chip.addEventListener('click', () => {
+      if (UI.selA === null) UI.selA = aid;
+      else if (UI.selB === null) { UI.selB = aid; }
+      else { UI.selA = aid; UI.selB = null; }
+      renderAll();
+    });
+    box.appendChild(chip);
+  }
+  const tb = document.getElementById('tombstones');
+  tb.innerHTML = '';
+  const dead = Object.values(UI.eng.atoms).filter(a => !a.alive);
+  if (dead.length) {
+    tb.innerHTML = '<span class="hint">墓碑（已删，行保留）：</span>';
+    for (const a of dead) {
+      const chip = document.createElement('span');
+      chip.className = 'chip dead';
+      chip.innerHTML = `<span class="id">#${a.id}</span> ${a.value}`;
+      tb.appendChild(chip);
+    }
+  }
+}
+function renderTiling() {
+  const box = document.getElementById('tiling');
+  box.innerHTML = '';
+  const shadows = UI.lastRecall && UI.lastRecall.length ? UI.lastRecall : null;
+  const out = UI.eng.assemble(shadows, 1000000);
+  const pre = document.getElementById('assembly-text');
+  pre.textContent = UI.eng.render_emission(out);
+  if (!out.length) { box.innerHTML = '<span class="hint">（空）</span>'; return; }
+  for (const [kind, item, value] of out) {
+    const chip = document.createElement('span');
+    if (kind === 'shadow') {
+      const nd = UI.eng.nodes[item];
+      chip.className = 'nodechip';
+      chip.style.borderStyle = 'dashed';
+      chip.style.borderColor = '#d4a72c';
+      chip.style.background = '#fff8c5';
+      if (UI.flashN.has(item)) chip.classList.add(UI.flashCls);
+      chip.textContent = `影N${item}⊂N${nd.parent}`;
+    } else if (kind === 'node') {
+      const nd = UI.eng.nodes[item];
+      chip.className = 'nodechip';
+      if (nd.dirty) chip.classList.add('dirty');
+      if (nd.placeholder) chip.classList.add('placeholder');
+      if (UI.flashN.has(item)) chip.classList.add(UI.flashCls);
+      chip.textContent = `【N${item}${nd.placeholder ? '·占位' : ''}${nd.parent ? '⊂N' + nd.parent : ''}】`;
+    } else {
+      chip.className = 'chip';
+      if (UI.flashA.has(item)) chip.classList.add(UI.flashCls);
+      chip.textContent = `${value}`;
+    }
+    box.appendChild(chip);
+    const sep = document.createElement('span');
+    sep.className = 'sep';
+    sep.textContent = '→';
+    box.appendChild(sep);
+  }
+  box.removeChild(box.lastChild);
+}
+function renderStats() {
+  const s = UI.eng.stat();
+  document.getElementById('stats').innerHTML = `
+    <span>轮次 <b>${s.round}</b></span>
+    <span>原子 <b>${s.atomsAlive}</b>/${s.atomsTotal}</span>
+    <span>节点 <b>${s.nodesAlive}</b></span>
+    <span>最大高度 <b>${s.maxHeight}</b></span>
+    <span>脏 <b style="color:${s.dirty ? 'var(--red)' : 'inherit'}">${s.dirty}</b></span>
+    <span>占位 <b style="color:${s.placeholder ? 'var(--amber)' : 'inherit'}">${s.placeholder}</b></span>
+    <span>铺陈项 <b>${s.tiling}</b></span>
+    <span>归档 <b>${s.archive}</b></span>
+    <span>回滚账本 <b>${s.ledger}</b></span>`;
+}
+function renderAll() {
+  readParams();
+  renderTree();
+  renderChain();
+  renderTiling();
+  renderStats();
+}
+
+const DEMO = [
+  { cap: '1/16 初始化：写入第 1 章（5 个句子原子卡，满 HP=100）', fn: () => UI.eng.write([1, 2, 3, 4, 5]) },
+  { cap: '2/16 时间流逝：衰减 15 轮，HP 降到合并阈值以下', fn: () => UI.eng.tick(15) },
+  { cap: '3/16 章末蒸馏：低 HP 原子整组合并为「章概述」节点（值 = 加权平均）', fn: () => UI.eng.mergePass() },
+  { cap: '4/16 写第 2 章：新原子满 HP，成为热区（高亮紫色）', fn: () => UI.eng.write([6, 7, 8, 9]) },
+  { cap: '5/16 衰减：新旧内容一起冷却', fn: () => UI.eng.tick(15) },
+  { cap: '6/16 蒸馏：第 2 章与第 1 章节点深度差 = 1，按秩合并成一个卷节点', fn: () => UI.eng.mergePass() },
+  { cap: '7/16 写第 3 章（热区），先看看组装输出', fn: () => { UI.eng.write([11, 12, 13]); UI.eng.assemble(1000000); } },
+  { cap: '8/16 区间改写：把第 1 章的两句（3,4）改成 30,31 —— 编辑路径零 LLM', fn: () => { UI.eng.replace([3, 4], [30, 31]); } },
+  { cap: '9/16 编辑效果：被改节点立即置脏（红），组装时基础层自动「剥离」为原子', fn: () => { UI.eng.assemble(1000000); } },
+  { cap: '10/16 衰减 + 蒸馏：脏节点重建 —— 热内容被排除，生成占位摘要', fn: () => { UI.eng.tick(2); UI.eng.mergePass(); } },
+  { cap: '11/16 冷却：新内容不再被反复编辑 → 占位解除，摘要补全', fn: () => { UI.eng.tick(9); UI.eng.mergePass(); } },
+  { cap: '12/18 查询回调：q=13.8 全树打分命中第 1 章节点 N1（含路径 N2），组装流注入 N1 影子卡（⊂N2 标注从属）', fn: () => { UI.lastRecall = UI.eng.retrieve(13.8, 6); UI.eng.assemble(UI.lastRecall, 1000000); } },
+  { cap: '13/18 连续再次查询（激活 2 次）：影子持续可见，N1 内容在流中保持', fn: () => { UI.lastRecall = UI.eng.retrieve(13.8, 6); UI.eng.assemble(UI.lastRecall, 1000000); } },
+  { cap: '14/18 第三次查询：激活次数达阈值 → 自动提升：父节点 N2 沿 N1 分裂，N1 独立成树（碎片置脏待重建）', fn: () => { UI.lastRecall = UI.eng.retrieve(13.8, 6); UI.eng.assemble(UI.lastRecall, 1000000); } },
+  { cap: '15/18 衰减 + 蒸馏：碎片重建完成，N1 与碎片各自成为独立顶层树', fn: () => { UI.eng.tick(2); UI.eng.mergePass(); } },
+  { cap: '16/18 回滚：撤销最近的改写（删除+插入两步），内容级还原', fn: () => UI.eng.rollback(2) },
+  { cap: '17/18 再写一段（追加），观察热区原子与旧节点的融合过程', fn: () => { UI.eng.write([40, 41, 42]); UI.eng.tick(15); } },
+  { cap: '18/18 蒸馏：新内容与卷节点深度差 > 秩差 → 按秩合并让新内容先自行成团，树保持平衡', fn: () => UI.eng.mergePass() },
+];
+
+async function runDemo() {
+  if (UI.demoRunning) return;
+  UI.demoRunning = true;
+  document.querySelectorAll('.controls button').forEach(b => { b.disabled = true; });
+  const banner = document.getElementById('banner');
+  banner.style.display = 'block';
+  for (const step of DEMO) {
+    banner.textContent = step.cap;
+    step.fn();
+    renderAll();
+    await new Promise(r => setTimeout(r, 1600));
+  }
+  banner.style.display = 'none';
+  log('演示结束');
+  document.querySelectorAll('.controls button').forEach(b => { b.disabled = false; });
+  UI.demoRunning = false;
+}
+
+document.getElementById('in_vals').value = '';
+renderAll();
+log('水循环 v2 记忆树演示就绪。操作：原子链上点两下选区间；点树节点回血；参数可实时调整。');
+</script>
+</body>
+</html>

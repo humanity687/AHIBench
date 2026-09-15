@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AHI 监视器（只读）</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"PingFang SC",sans-serif;background:#0f0f0f;color:#ddd;font-size:13px;-webkit-tap-highlight-color:transparent}
+  .wrap{max-width:960px;margin:0 auto;padding:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+  h1{font-size:15px;margin:0 0 2px}
+  .sub{color:#888;font-size:11px;margin-bottom:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#4caf6d;margin-right:4px;vertical-align:middle}
+  .dot.off{background:#e05b5b}
+  .filters{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;padding:8px 10px;background:#171717;border:1px solid #262626;border-radius:8px}
+  .filters label{color:#aaa;font-size:12px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:4px}
+  #feed{display:flex;flex-direction:column;gap:8px}
+  .m{background:#171717;border:1px solid #262626;border-radius:8px;padding:8px 10px}
+  .m .hd{font-size:11px;color:#888;margin-bottom:3px;display:flex;gap:8px;flex-wrap:wrap}
+  .m .from{font-weight:600}
+  .m .from.agent{color:#4caf6d}
+  .m .from.user{color:#5ab3e8}
+  .m .from.system{color:#e0b34c}
+  .m .to{color:#777}
+  .m .ts{color:#666;margin-left:auto;font-variant-numeric:tabular-nums}
+  .m .body{white-space:pre-wrap;word-break:break-word;line-height:1.5}
+  .m.sys{background:#141414;border-style:dashed}
+  .m.private{border-color:#3a2f4a}
+  .m.receipt{background:#141414;color:#999}
+  .badge{font-size:10px;padding:0 5px;border-radius:6px;background:#2c2c2c;color:#aaa}
+  #empty{color:#666;text-align:center;padding:30px 0}
+  .paused{color:#e0b34c}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AHI 监视器 · 全量消息流（只读）</h1>
+  <div class="sub">
+    <span><span class="dot" id="dot"></span><span id="conn">连接中…</span></span>
+    <span>消息 <b id="total">0</b></span>
+    <span id="updated">—</span>
+    <span id="counts" style="color:#777"></span>
+  </div>
+  <div class="filters">
+    <label><input type="checkbox" id="f_msg" checked> 对话消息</label>
+    <label><input type="checkbox" id="f_sys" checked> 系统通知</label>
+    <label><input type="checkbox" id="f_receipt"> 投递回执</label>
+    <label><input type="checkbox" id="f_private" checked> 私密</label>
+    <label><input type="checkbox" id="f_broadcast" checked> 广播</label>
+  </div>
+  <div id="feed"><div id="empty">等待消息…</div></div>
+</div>
+<script>
+const LIMIT = 300;
+let seen = new Set();      // msg_id 去重
+let items = [];            // 已渲染消息（升序）
+let timer = null;
+
+const els = id => document.getElementById(id);
+const F = {msg:'f_msg', sys:'f_sys', receipt:'f_receipt', private:'f_private', broadcast:'f_broadcast'};
+for(const k in F){ els(F[k]).addEventListener('change', render); }
+
+// DB 时间戳为 UTC（datetime('now')），转本地
+function localTime(ts){
+  if(!ts) return '';
+  const d = new Date(ts.replace(' ','T') + 'Z');
+  return isNaN(d) ? ts.slice(11,19) : d.toLocaleTimeString();
+}
+function bare(a){ return (a||'').includes(':') ? a.split(':')[1] : (a||''); }
+function kindOf(m){
+  if(m.msg_type === 'receipt') return 'receipt';
+  if(m.from_agent === 'system') return 'sys';
+  return 'msg';
+}
+function fromCls(m){
+  if(m.from_agent === 'system') return 'system';
+  return (m.from_agent||'').startsWith('user:') ? 'user' : 'agent';
+}
+function visible(m){
+  const k = kindOf(m);
+  if(k === 'receipt') return els(F.receipt).checked;
+  if(k === 'sys') return els(F.sys).checked;
+  if(!els(F.msg).checked) return false;
+  if(m.to_target === 'private' && !els(F.private).checked) return false;
+  if((m.to_target||'').startsWith('broadcast') && !els(F.broadcast).checked) return false;
+  return true;
+}
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function render(){
+  const vis = items.filter(visible);
+  els('total').textContent = items.length;
+  const c = {msg:0,sys:0,receipt:0};
+  items.forEach(m=>{ c[kindOf(m)] = (c[kindOf(m)]||0)+1; });
+  els('counts').textContent = `对话 ${c.msg||0} · 系统 ${c.sys||0} · 回执 ${c.receipt||0}`;
+  if(!vis.length){ els('feed').innerHTML = '<div id="empty">（当前筛选无消息）</div>'; return; }
+  const atBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 60;
+  els('feed').innerHTML = vis.map(m=>{
+    const k = kindOf(m);
+    const cls = k==='receipt' ? 'm receipt' : (k==='sys' ? 'm sys' : 'm') + (m.to_target==='private'?' private':'');
+    const badge = m.to_target==='private' ? '<span class="badge">私密</span>' : '';
+    return `<div class="${cls}"><div class="hd">`
+      + `<span class="from ${fromCls(m)}">${esc(m.from_agent)}</span>`
+      + `<span class="to">→ ${esc(m.to_target)}</span>${badge}`
+      + `<span class="ts">${localTime(m.timestamp)}</span></div>`
+      + `<div class="body">${esc(m.content)}</div></div>`;
+  }).join('');
+  if(atBottom) window.scrollTo(0, document.body.scrollHeight);
+}
+
+async function poll(){
+  try{
+    const r = await fetch('/api/v1/messages?limit='+LIMIT, {cache:'no-store'});
+    if(!r.ok) throw 0;
+    const data = (await r.json()).data || [];
+    els('dot').className = 'dot';
+    els('conn').textContent = '实时';
+    let added = 0;
+    // API 返回 DESC；按 id 升序并入
+    data.slice().reverse().forEach(m=>{
+      if(seen.has(m.msg_id)) return;
+      seen.add(m.msg_id);
+      items.push(m); added++;
+    });
+    if(items.length > 4000){ items = items.slice(-3000); seen = new Set(items.map(m=>m.msg_id)); }
+    els('updated').textContent = '更新于 ' + new Date().toLocaleTimeString();
+    if(added) render();
+  }catch(e){
+    els('dot').className = 'dot off';
+    els('conn').textContent = '连接中断，重试中…';
+  }
+}
+
+function start(){ if(!timer) timer = setInterval(poll, 1500); poll(); }
+function stop(){ clearInterval(timer); timer = null; }
+document.addEventListener('visibilitychange', ()=>{ document.visibilityState==='visible' ? start() : stop(); });
+start();
+</script>
+</body>
+</html>

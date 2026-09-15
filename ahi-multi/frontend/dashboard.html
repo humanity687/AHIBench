@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AHI 实验 Dashboard</title>
+<script src="chart.umd.min.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"PingFang SC",sans-serif;background:#111;color:#ddd;font-size:13px;-webkit-tap-highlight-color:transparent} /* 移动端适配 */
+  #lock{position:fixed;inset:0;background:#0a0a0a;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99;padding:20px}
+  #lock input{padding:10px 16px;font-size:15px;border:1px solid #444;background:#181818;color:#eee;border-radius:6px;width:min(220px,72vw);text-align:center} /* 移动端适配：窄屏不溢出 */
+  #lock button{margin-top:10px;padding:10px 26px;min-height:44px;border:none;border-radius:6px;background:#2a7d4f;color:#fff;cursor:pointer;font-size:14px} /* 移动端适配：触控目标≥44px */
+  #lock .err{color:#e05b5b;margin-top:8px;min-height:18px}
+  .wrap{max-width:1280px;margin:0 auto;padding:14px;padding-bottom:calc(14px + env(safe-area-inset-bottom))} /* 移动端适配：底部安全区 */
+  h1{font-size:16px;margin:0 0 4px}
+  .sub{color:#888;font-size:11px;margin-bottom:14px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:10px;margin-bottom:14px} /* 移动端适配：≤320px 不横向溢出 */
+  .card{background:#1a1a1a;border:1px solid #2c2c2c;border-radius:8px;padding:12px}
+  .card h3{margin:0 0 6px;font-size:14px}
+  .card .row{display:flex;flex-wrap:wrap;gap:4px 12px}
+  .card .k{color:#8a8a8a}
+  .card .v{font-variant-numeric:tabular-nums}
+  .ok{color:#4caf6d}.warn{color:#e0b34c}.bad{color:#e05b5b}
+  .charts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+  .chartbox{background:#1a1a1a;border:1px solid #2c2c2c;border-radius:8px;padding:10px}
+  .chartbox h4{margin:0 0 6px;font-size:12px;color:#aaa}
+  .chartbox canvas{max-height:230px}
+  .logs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .logbox{background:#1a1a1a;border:1px solid #2c2c2c;border-radius:8px;padding:10px;max-height:320px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain} /* 移动端适配 */
+  .logbox h4{margin:0 0 6px;font-size:12px;color:#aaa;position:sticky;top:0;background:#1a1a1a;padding:4px 0}
+  .logbox .ln{font-size:11px;line-height:1.5;border-bottom:1px solid #242424;padding:3px 0;word-break:break-all}
+  .logbox .ts{color:#666;margin-right:6px}
+  .ev-user{color:#5ab3e8}.ev-agent{color:#4caf6d}.ev-warn{color:#e0b34c}
+  @media(max-width:900px){.charts,.logs{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="lock">
+  <div style="font-size:13px;color:#888;margin-bottom:8px">AHI 实验 Dashboard · 请输入管理员密码</div>
+  <input id="pwd" type="password" placeholder="密码" autofocus autocapitalize="off" autocorrect="off" autocomplete="current-password" enterkeyhint="done">
+  <button onclick="unlock()">进入</button>
+  <div class="err" id="err"></div>
+</div>
+
+<div class="wrap" id="main" style="display:none">
+  <h1>AHI 实验 Dashboard</h1>
+  <div class="sub" id="updated">—</div>
+  <div class="cards" id="cards"></div>
+  <div class="card" style="margin-bottom:14px">
+    <h3 style="margin:0 0 6px;font-size:13px;color:#aaa">上下文组成（铺陈窗口 / 组装流占比）</h3>
+    <div id="compose"></div>
+  </div>
+  <div class="charts">
+    <div class="chartbox"><h4>树规模（atoms / nodes）</h4><canvas id="c_tree"></canvas></div>
+    <div class="chartbox"><h4>上下文字符 & 铺陈项</h4><canvas id="c_ctx"></canvas></div>
+    <div class="chartbox"><h4>蒸馏 / LLM 调用累计</h4><canvas id="c_cost"></canvas></div>
+    <div class="chartbox"><h4>pending 积压 & persona 切换</h4><canvas id="c_pend"></canvas></div>
+  </div>
+  <div class="logs">
+    <div class="logbox"><h4>系统日志</h4><div id="syslogs"></div></div>
+    <div class="logbox"><h4>事件流 & Agent 日志</h4><div id="evlogs"></div></div>
+  </div>
+</div>
+
+<script>
+let KEY = sessionStorage.getItem('ahi_dash_key') || '';
+let charts = {};
+const AGENT_COLORS = {'lan':'#4caf6d','neutral':'#5ab3e8','lin-shen':'#e0b34c'};
+
+// 移动端省电：页面隐藏暂停轮询，回前台立即刷新并恢复
+let tOverview=null, tLogs=null, tSeries=null;
+function startTimers(){
+  if(tOverview) return;
+  tOverview=setInterval(refreshOverview,5000);
+  tLogs=setInterval(refreshLogs,5000);
+  tSeries=setInterval(refreshSeries,30000);
+}
+function stopTimers(){
+  clearInterval(tOverview); clearInterval(tLogs); clearInterval(tSeries);
+  tOverview=tLogs=tSeries=null;
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'){ if(!tOverview){ refreshAll(); startTimers(); } }
+  else stopTimers();
+});
+
+function unlock(){
+  KEY = document.getElementById('pwd').value.trim();
+  fetch('/api/v1/dashboard/overview?key='+encodeURIComponent(KEY))
+    .then(r=>{ if(r.ok){ sessionStorage.setItem('ahi_dash_key',KEY); document.getElementById('lock').style.display='none';
+      document.getElementById('main').style.display='block'; refreshAll(); startTimers(); }
+      else document.getElementById('err').textContent='密码错误'; })
+    .catch(()=>document.getElementById('err').textContent='无法连接');
+}
+if(KEY){ // 自动尝试
+  fetch('/api/v1/dashboard/overview?key='+encodeURIComponent(KEY))
+    .then(r=>{ if(r.ok){ document.getElementById('lock').style.display='none';
+      document.getElementById('main').style.display='block'; refreshAll(); startTimers(); } });
+}
+
+function q(k){ return '?key='+encodeURIComponent(KEY); }
+
+function refreshAll(){ refreshOverview(); refreshLogs(); refreshSeries(); }
+
+async function refreshOverview(){
+  try{
+    const r = await fetch('/api/v1/dashboard/overview'+q());
+    if(!r.ok) return;
+    const d = (await r.json()).data;
+    document.getElementById('updated').textContent =
+      '更新于 '+new Date(d.ts*1000).toLocaleTimeString()+' · 全局消息 '+d.messages_total+' 条';
+    document.getElementById('cards').innerHTML = d.agents.map(a=>{
+      const last = a.last || {};
+      const st = a.status==='thinking' ? '<span class="warn">thinking</span>' :
+                 a.waiting ? '<span class="warn">wait: '+a.waiting+'</span>' : '<span class="ok">idle</span>';
+      const persona = last.persona===false ? '<span class="warn">已移除</span>' : (last.persona===true?'<span class="ok">注入</span>':'—');
+      return '<div class="card"><h3>'+a.agent_name+'（'+a.agent_id+'）</h3><div class="row">'+
+        '<span><span class="k">状态</span> <span class="v">'+st+'</span></span>'+
+        '<span><span class="k">wakeup</span> <span class="v">'+(a.wakeup??'—')+'</span></span>'+
+        '<span><span class="k">pending</span> <span class="v '+(a.pending>10?'bad':(a.pending>3?'warn':'ok'))+'">'+(a.pending??'—')+'</span></span>'+
+        '<span><span class="k">persona</span> <span class="v">'+persona+'</span></span>'+
+        '<span><span class="k">atoms</span> <span class="v">'+(last.atoms_alive??'—')+'</span></span>'+
+        '<span><span class="k">nodes</span> <span class="v">'+(last.nodes_alive??'—')+'</span></span>'+
+        '<span><span class="k">tiling</span> <span class="v">'+(last.tiling??'—')+'</span></span>'+
+        '<span><span class="k">ctx</span> <span class="v">'+(last.ctx_chars??'—')+'</span></span>'+
+        '<span><span class="k">蒸馏</span> <span class="v">'+(last.distill_calls??'—')+' 次/'+(last.distill_seconds??'—')+'s</span></span>'+
+        '<span><span class="k">快照字段</span> <span class="v">'+(last.snapshot_fields??'—')+'</span></span>'+
+        '<span><span class="k">事实漂移</span> <span class="v '+(last.fact_drift>0?'bad':'ok')+'">'+(last.fact_drift??0)+'</span></span>'+
+        '</div></div>';
+    }).join('');
+    // 上下文组成条（铺陈窗口占比 + 组装流占比）
+    document.getElementById('compose').innerHTML = d.agents.filter(x=>x.compose).map(a=>{
+      const c = a.compose;
+      const P1 = ['#4caf6d','#2a7d4f','#5ab3e8','#2a6d9f','#e0b34c'];
+      const segs = [
+        ['被保护原子', c.win_atoms, P1[0]],
+        ['原子(出窗)', Math.max(0,c.tile_atoms-c.win_atoms), P1[1]],
+        ['被保护节点', c.win_nodes, P1[2]],
+        ['节点(出窗)', Math.max(0,c.tile_nodes-c.win_nodes), P1[3]],
+      ];
+      const total = segs.reduce((s,x)=>s+x[1],0) || 1;
+      const bar = segs.map(s=>'<div style="flex:'+s[1]+';min-width:2px;background:'+s[2]+';height:16px" title="'+s[0]+' '+s[1]+'"></div>').join('');
+      const as = [['原子',c.ctx_atoms],['摘要',c.ctx_nodes],['影子',c.ctx_shadows]].map(s=>
+        '<span style="margin-right:10px;color:#aaa;font-size:11px">'+s[0]+' <b style="color:#ddd">'+s[1]+'</b></span>').join('');
+      return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:11px;color:#aaa;margin-bottom:2px">'+
+        '<span>'+a.agent_name+' · 铺陈 '+c.tile_atoms+'原子/'+c.tile_nodes+'节点（HP≥45: '+c.hp45_atoms+'/'+c.hp45_nodes+'）</span>'+
+        '<span>组装流 '+c.ctx_chars+'字符</span></div>'+
+        '<div style="display:flex;border-radius:4px;overflow:hidden">'+bar+'</div>'+
+        '<div style="margin-top:3px">'+as+'</div></div>';
+    }).join('') || '<span style="color:#666">—</span>';
+  }catch(e){}
+}
+
+function mkChart(id){
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {type:'line',
+    options:{responsive:true,animation:false,
+      plugins:{legend:{labels:{color:'#aaa',boxWidth:14,font:{size:10}}}},
+      scales:{x:{ticks:{color:'#777',font:{size:9}},grid:{color:'#222'}},
+              y:{ticks:{color:'#777',font:{size:9}},grid:{color:'#222'}}}}});
+  return charts[id];
+}
+
+async function refreshSeries(){
+  try{
+    const r = await fetch('/api/v1/dashboard/series'+q());
+    if(!r.ok) return;
+    const data = (await r.json()).data;
+    const labelsOf = a => (data[a]||[]).map(x=>x.r);
+    // 树规模
+    const ct = mkChart('c_tree');
+    ct.data = {labels:labelsOf('lan'),
+      datasets:[{label:'lan atoms',data:(data['lan']||[]).map(x=>x.atoms),borderColor:'#4caf6d',pointRadius:0},
+                {label:'lan nodes',data:(data['lan']||[]).map(x=>x.nodes),borderColor:'#2a7d4f',pointRadius:0,borderDash:[3,3]},
+                {label:'neutral atoms',data:(data['neutral']||[]).map(x=>x.atoms),borderColor:'#5ab3e8',pointRadius:0},
+                {label:'neutral nodes',data:(data['neutral']||[]).map(x=>x.nodes),borderColor:'#2a6d9f',pointRadius:0,borderDash:[3,3]}]};
+    ct.update();
+    // ctx 与 tiling
+    const cc = mkChart('c_ctx');
+    cc.data = {labels:labelsOf('lan'),
+      datasets:[{label:'lan ctx',data:(data['lan']||[]).map(x=>x.ctx),borderColor:'#4caf6d',pointRadius:0},
+                {label:'neutral ctx',data:(data['neutral']||[]).map(x=>x.ctx),borderColor:'#5ab3e8',pointRadius:0},
+                {label:'lan tiling',data:(data['lan']||[]).map(x=>x.tiling),borderColor:'#e0b34c',pointRadius:0,borderDash:[3,3]}]};
+    cc.update();
+    // 成本
+    const ck = mkChart('c_cost');
+    ck.data = {labels:labelsOf('lan'),
+      datasets:[{label:'lan 蒸馏次数',data:(data['lan']||[]).map(x=>x.dc),borderColor:'#e05b5b',pointRadius:0},
+                {label:'lan LLM次数',data:(data['lan']||[]).map(x=>x.lc),borderColor:'#4caf6d',pointRadius:0},
+                {label:'neutral 蒸馏次数',data:(data['neutral']||[]).map(x=>x.dc),borderColor:'#e8a05b',pointRadius:0,borderDash:[3,3]}]};
+    ck.update();
+    // pending 与 persona（双轴：persona 0/1 叠加）
+    const cp = mkChart('c_pend');
+    const lan = data['lan']||[];
+    cp.data = {labels:labelsOf('lan'),
+      datasets:[{label:'lan pending',data:lan.map(x=>x.pending),borderColor:'#e05b5b',pointRadius:0},
+                {label:'neutral pending',data:(data['neutral']||[]).map(x=>x.pending),borderColor:'#e8a05b',pointRadius:0,borderDash:[3,3]},
+                {label:'lan persona(×scale)',data:lan.map(x=>x.persona===false?5:null),borderColor:'#fff',pointRadius:3,showLine:false}]};
+    cp.update();
+  }catch(e){}
+}
+
+async function refreshLogs(){
+  try{
+    const r = await fetch('/api/v1/dashboard/logs'+q());
+    if(!r.ok) return;
+    const d = (await r.json()).data;
+    document.getElementById('syslogs').innerHTML = (d.system_logs||[]).map(l=>
+      '<div class="ln"><span class="ts">'+(l.timestamp||'').slice(11,19)+'</span>['+l.level+'] '+l.source+': '+l.message+'</div>').join('');
+    let ev = (d.events||[]).map(e=>
+      '<div class="ln"><span class="ts">'+(e.ts||'').slice(11,19)+'</span><span class="'+
+      (e.ev_type.startsWith('user')?'ev-user':'ev-agent')+'">'+e.ev_type+'</span> '+e.detail+'</div>').join('');
+    for(const [aid,lines] of Object.entries(d.agent_logs||{})){
+      ev += '<div class="ln" style="color:#777">── '+aid+'.log ──</div>' +
+        lines.map(l=>'<div class="ln">'+l.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</div>').join('');
+    }
+    document.getElementById('evlogs').innerHTML = ev || '（暂无）';
+  }catch(e){}
+}
+</script>
+</body>
+</html>

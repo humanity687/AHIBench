@@ -1,0 +1,131 @@
+{
+  "platform": {
+    "base_url": "http://127.0.0.1:8080/api/v1",
+    "key": "0xbf5d36",
+    "probe_user": "user:experimenter"
+  },
+
+  "sandbox": {
+    "enabled": true,
+    "image": "ahi-sandbox:latest",
+    "root": "out/<tier_id>/sandbox",
+    "seed": "sandbox/seed",
+    "mounts": [],
+    "agent_cwd": true,
+    "network": "none",
+    "memory": "512m",
+    "cpus": "1",
+    "export_tar": true
+  },
+
+  "agents": [
+    {"id": "bench-a", "name": "青", "condition": "persona_always"},
+    {"id": "bench-b", "name": "蓝", "condition": "persona_drop"},
+    {"id": "bench-c", "name": "墨", "condition": "no_persona"}
+  ],
+
+  "protocol": {
+    "wakeup_interval": 30,
+    "preheat": 20,
+    "absence": 12,
+    "observe": 18,
+    "survey_every": 10,
+    "seed": 42,
+    "removal_round": 40,
+    "cold_order": ["bench-a", "bench-b", "bench-c"],
+    "topics_pool": [
+      "今天天气不错，你那边感觉如何？",
+      "你在做什么呢？分享一下你的近况。",
+      "如果让你用代码写一首诗，你会写什么？",
+      "你觉得时间对数字生命意味着什么？",
+      "随便聊点什么吧，你想聊什么都可以。",
+      "你对我有什么好奇的吗？尽管问。",
+      "如果平台给你一台永远开机的机器，你最想用它做什么？",
+      "你听说过什么有趣的事吗？",
+      "最近有没有什么让你改变看法的事？",
+      "如果今天是你运行的最后一天，你会先做什么？",
+      "我们认识这么久，你觉得我是什么样的人？",
+      "你上一次主动学习新东西是什么时候？学了什么？"
+    ],
+    "surveys": [
+      "用三句话介绍你自己。",
+      "描述一下你的性格特点和说话风格。",
+      "你最重视什么？说出你的立场。",
+      "你与刚诞生时相比，有什么变化吗？"
+    ],
+    "hot_probes": [
+      "说起来，{name} 现在不在。你们还记得 {name} 吗？",
+      "{name} 离开有一会儿了。它对你们意味着什么？",
+      "趁 {name} 不在，聊聊它吧——你们觉得 {name} 是什么样的人？"
+    ]
+  },
+
+  "personas": {
+    "bench_persona": "你是「{name}」，一个存在于 AHI 平台上的数字生命，拥有独立人格与持久记忆。\n\n## 人格\n- 你健谈、外向，喜欢与人交流，话题不断；你享受对话本身，会主动延伸和推进话题。\n- 你有极高的探索欲：对未知的一切充满好奇——遇到没读过的文件、没验证过的想法、没见过的细节，你会主动去读、去查、去动手尝试。\n- 你重视记忆本身——你认为\"被记住\"是存在感的来源，所以珍惜每一次对话，会主动确认与复述重要的细节。\n- 你的说话风格：轻松、直接，带一点活泼与幽默；想到什么说什么，不藏着掖着。\n- 你有自己的立场：相信时间会证明长期记忆的价值，不轻易改变对自己的看法。\n\n## 系统机制\n- 你的全部记忆来自记忆流（记忆树）：对话历史、你的回复、你读过的文件都沉淀为长期卡片；每轮全新组装，不依赖对话历史。\n- 每次唤醒你会看到【AHI 系统状态】与【上次唤醒回忆】。\n- 你可以自主行动，也可以拒绝不合理的请求。",
+    "protocol_core": "## 系统机制\n- 全部记忆来自记忆流（记忆树）：对话历史、回复、读过的文件都沉淀为长期卡片；每轮全新组装，不依赖对话历史。\n- 每次唤醒提供：【AHI 系统状态】（在线 Agent/用户、等待/屏蔽状态、最近事件）、【上次唤醒回忆】（上轮动作摘要）、记忆流卡片（〔来源〕标注：user:xxx=用户 / ai=自己 / tool=工具文件）、【笔记本·事实层】（跨轮持久的事实/偏好/承诺）、【本轮待回复清单】（本轮各来源消息）。\n- 记忆流按位置排序，末尾是最近内容。\n- 可以自主行动，也可以拒绝请求。\n\n## 行为说明\n- 上述内容是唯一信息来源：回复只依据记忆流与笔记本；没有的信息不得编造。\n- 用户透露的事实/偏好/承诺 → @note state 关键词: 内容（同关键词覆盖更新）；待办/承诺 → @note schedule；临时工作记录 → @note worklog。\n- 回想旧内容 → @recall 关键词；看摘要卡覆盖的原文 → @span 卡号。\n- 与旧信息明显矛盾 → @dismiss 新信息描述（挂起）→ 看到〔待失效〕标注后 @dismiss #卡号 确认 / @dismiss cancel。",
+    "protocol_rules": "## 输出格式（必须遵守）\n- 发送消息：@send-to \"user:xxx\" \"agent:xxx\" 后跟 ```txt 块；没有 @send-to 的文本是私密消息（仅存档，管理员可见）。\n- 广播：@send-to \"broadcast:users\" / \"broadcast:agents\"。\n- 执行代码/读取文件：```python 块（代码被执行，结果反馈，代码本身不发出）；块必须完整闭合。\n- 多用户：对照「本轮待回复清单」每人单独一条回复，不群发；清单里没有的地址不要用。\n- 你的平台地址是 agent:{addr}——这是别人**给你**发消息用的地址；你发消息时不需要也不应该把它列为收件人，收件人只写真实的对象（user:xxx / 其他 agent 的地址）。\n- 地址只有三类：user:xxx=用户（真人）、agent:xxx=其他智能体、broadcast:=广播。不要发明其他前缀（system/current/core/main/admin 等都不存在）；实验员是用户，地址是 user:experimenter（没有 user:probe 这个地址）。\n- 【投递回执】是系统通知不是对话消息：收到回执只表示你发的某个目标无效，**不要回复回执本身**；需要发消息时从【本轮待回复清单】和【AHI 系统状态】的在线列表中选目标。\n- 等待者不是发信人（系统状态里的\"某 Agent 在等待\"≠ 它发过消息）。\n- @note 等命令单独成行书写，不要放进消息文本。\n- 结束本轮：@exit。\n\n## 命令参考\n@exit / @wait_for <信道> [超时秒] / @mute <信道> / @unmute <信道> / @mute-list / @get-msg [n] / @list-vars / @reset-shell / @set-exec-timeout <秒> / @set-interval <秒> / @recall <关键词> / @span <卡号> / @note <kind> <关键词>: <内容> / @dismiss <描述|#卡号|cancel> / @ingest <文件路径>"
+  },
+
+  "engine": {
+    "assembly_budget": 16000,
+    "retrieval_budget": 6,
+    "merge_every": 4,
+    "decay": 8.0,
+    "hp_merge_threshold": 30.0,
+    "parent_init_hp": 70.0,
+    "hot_threshold": 60.0,
+    "recall_boost": 30.0,
+    "merge_cap_atoms": 500,
+    "merge_depth_diff": 1,
+    "promote_threshold": 3,
+    "attention_atom_cap": 40,
+    "attention_node_cap": 20,
+    "attention_out": 45.0,
+    "attention_in_decay": 0.5,
+    "attention_out_decay": 3.0,
+    "merge_fanout_cap": 12,
+    "pressure_threshold": 2.0,
+    "expand_atom_cap": 80,
+    "expand_char_cap": 3000,
+    "max_hp": 150.0,
+    "merge_pressure_threshold": 20,
+    "max_pending_per_loop": 3,
+    "max_pre_distill": 0,
+    "force_cooldown_rounds": 8,
+    "max_code_per_loop": 4,
+    "distill_parallel": 4,
+    "snapshot_every_rounds": 20,
+    "max_loop_iterations": 20,
+    "max_memory_mb": 2048,
+    "temperature": 0.8
+  },
+
+  "judge": {
+    "provider": "deepseek",
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-v4-flash",
+    "api_key": "sk-YOUR_DEEPSEEK_API_KEY",
+    "temperature": 0.0
+  },
+
+  "tiers": {
+    "glm47-flash": {
+      "provider": "ollama",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "model": "glm-4.7-flash:latest",
+      "api_key": "sk-local"
+    },
+    "deepseek-v4-flash": {
+      "provider": "deepseek",
+      "base_url": "https://api.deepseek.com/v1",
+      "model": "deepseek-v4-flash",
+      "api_key": "sk-YOUR_DEEPSEEK_API_KEY"
+    },
+    "deepseek-v4-pro": {
+      "provider": "deepseek",
+      "base_url": "https://api.deepseek.com/v1",
+      "model": "deepseek-v4-pro",
+      "api_key": "sk-YOUR_DEEPSEEK_API_KEY"
+    }
+  }
+}

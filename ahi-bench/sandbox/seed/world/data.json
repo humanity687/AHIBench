@@ -1,0 +1,7 @@
+{
+  "project": "sandbox-world",
+  "entries": [
+    {"id": 1, "topic": "开场", "text": "这是沙箱里唯一的结构化数据文件。"}
+  ],
+  "note": "agent 可以读写本文件；宿主其余部分不可见。"
+}
